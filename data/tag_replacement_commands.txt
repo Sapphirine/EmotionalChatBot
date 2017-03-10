@@ -1,0 +1,7 @@
+sed 's/\./ <PERIOD>/g; s/\,/ <COMMA>/g; s/\!/ <EXCLAMATION>/g; s/\;/ <SEMI>/g; s/\:/ <COLON>/g;  s/\?/ <QUESTION>/g' movie_lines.txt >> temp.txt
+mv temp.txt no_punct_movie_lines.txt
+
+sed -n '/<b>/!w temp.txt' no_punct_movie_lines.txt
+mv temp.txt no_punct_movie_lines.txt 
+
+and process manually to eliminate unerline and italic codes
