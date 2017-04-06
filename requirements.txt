@@ -4,3 +4,5 @@ gensim==1.0.1
 Keras==1.2.0
 numpy==1.12.1
 tensorflow-gpu==0.12.1
+
+Please download the GoogleNews-vectors-negative300.bin zip file to embed the words
