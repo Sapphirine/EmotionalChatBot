@@ -4,6 +4,7 @@ GoogleNews-vectors-negative300.bin
 # compiled files
 *.py[cod]
 *.$py.class
+*.jar
 
 # jupyter notebook
 .ipynb_checkpoints

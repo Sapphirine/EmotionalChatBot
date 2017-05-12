@@ -1,14 +1,7 @@
 # taken from https://github.com/suriyadeepan/practical_seq2seq/blob/master/datasets/cornell_corpus/data.py
 
-EN_WHITELIST = '0123456789abcdefghijklmnopqrstuvwxyz ' # space is included in whitelist
-EN_BLACKLIST = '!"#$%&\'()*+,-./:;<=>?@[\\]^_`{|}~\''
-
-min_sent_length = 6
-max_sent_length = 30
-
 UNK = 'unk'
 VOCAB_SIZE = 8000
-
 
 import random
 import re
@@ -20,22 +13,20 @@ import numpy as np
 from subprocess import call
 import pickle
 import word2vec_utils as w2v
-
-SPLIT_STRING = '+++$+++'
-EMOTE_DELIMITER = '@'
+from chat_constants import *
 
 ''' 
     1. Read from 'movie-lines.txt'
     2. Create a dictionary with ( key = line_id, value = text )
 '''
 def get_id2line():
-    lines=open('data/stripped_movie_lines_results.txt', 'r' ).read().split('\n')
-    id2line = { 'blank' : " ".join( [ '1', '9', '1', EMOTE_DELIMITER, '' ] )  }
+    lines = open('data/stripped_movie_lines_results.txt', 'r' ).read().split('\n')
+    id2line = {}
     for line in lines:
         _line = line.split(SPLIT_STRING)
         if len(_line) == 4:
             ID = _line[0].strip()
-            text = _line[1].strip()
+            text = w2v.split_sentence( _line[1] ) #split up special characters i.e. "Hello?!" -> "Hello ? !"
             pos = _line[2]
             neg = _line[3][1:] #[1:] gets rid of the negative sign
             neu = str( 11 - int( pos ) - int(neg) )
@@ -50,7 +41,7 @@ def get_conversations():
     conv_lines = open('data/movie_conversations.txt', 'r').read().split('\n')
     convs = [ ]
     for line in conv_lines[:-1]:
-        _line = line.split(' +++$+++ ')[-1][1:-1].replace("'","").replace(" ","")
+        _line = line.split(' ' + SPLIT_STRING + ' ')[-1][1:-1].replace("'","").replace(" ","")
         convs.append(_line.split(','))
     return convs
 
@@ -78,62 +69,19 @@ def gather_dataset(convs, id2line):
     A1 = []; B = []; A2 = [];
 
     for conv in convs:
-        for i in range(len(conv)-1):
-            if(conv[i] in id2line and conv[i+1] in id2line):
-                A1.append(id2line['blank'])
-                B.append(id2line[conv[i]])
-                A2.append(id2line[conv[i+1]])
-                if i + 2 < len(conv):
-                    A1.append(id2line[conv[i]])
-                    B.append(id2line[conv[i+1]])
-                    A2.append(id2line[conv[i+2]])
+        for i in range(len(conv)-2):
+            if(conv[i] in id2line and conv[i+1] in id2line and conv[i+2] in id2line ):
+                #A1.append(id2line['blank'])
+                #B.append(id2line[conv[i]])
+                #A2.append(id2line[conv[i+1]])
+                #if i + 2 < len(conv):
+                A1.append(id2line[conv[i]])
+                B.append(id2line[conv[i+1]])
+                A2.append(id2line[conv[i+2]])
     
     print( '\nInitially generate ' + str(len(A1)) + ' training data' )
-    return A1,B,A2
-
-
-'''
-    We need 4 files
-    1. train.enc : Encoder input for training
-    2. train.dec : Decoder input for training
-    3. test.enc  : Encoder input for testing
-    4. test.dec  : Decoder input for testing
-'''
-def prepare_seq2seq_files(questions, answers, path='',TESTSET_SIZE = 30000):
-    
-    # open files
-    train_enc = open(path + 'train.enc','w')
-    train_dec = open(path + 'train.dec','w')
-    test_enc  = open(path + 'test.enc', 'w')
-    test_dec  = open(path + 'test.dec', 'w')
-
-    # choose 30,000 (TESTSET_SIZE) items to put into testset
-    test_ids = random.sample([i for i in range(len(questions))],TESTSET_SIZE)
-
-    for i in range(len(questions)):
-        if i in test_ids:
-            test_enc.write(questions[i]+'\n')
-            test_dec.write(answers[i]+ '\n' )
-        else:
-            train_enc.write(questions[i]+'\n')
-            train_dec.write(answers[i]+ '\n' )
-        if i%10000 == 0:
-            print('\n>> written {} lines'.format(i))
-
-    # close files
-    train_enc.close()
-    train_dec.close()
-    test_enc.close()
-    test_dec.close()
-            
-
-'''
- remove anything that isn't in the vocabulary
-    return str(pure en)
-'''
-def filter_line(line, whitelist):
-    return ''.join([ ch for ch in line if ch in whitelist ])
-
+    return np.array(A1),np.array(B),np.array(A2)
+           
 '''
  filter too long and too short sequences
     return tuple( filtered_ta, filtered_en )
@@ -147,17 +95,18 @@ def filter_data(A1_seq, B_seq, A2_seq):
     j = 0
     for i in range(data_len):
         lengths = map( lambda x: len(x[i].split(' ')), [A1_seq, B_seq, A2_seq ] )
-        if( lengths[0] <= max_sent_length and
-            lengths[1] <= max_sent_length and
-            lengths[2] <= max_sent_length and
-            ( lengths[0] >= min_sent_length or ( lengths[0] == 1 and A1_seq[i] == '' ) )and
-            lengths[1] >= min_sent_length and
-            lengths[2] >= min_sent_length
+        if( lengths[0] <= MAX_SENT_LENGTH and
+            lengths[1] <= MAX_SENT_LENGTH and
+            lengths[2] <= MAX_SENT_LENGTH and #A2 can be long because LSTM responds in double lenght sequence 
+            #( lengths[0] >= min_sent_length or ( lengths[0] == 1 and A1_seq[i] == '' ) )and
+            lengths[0] >= MIN_SENT_LENGTH and
+            lengths[1] >= MIN_SENT_LENGTH and
+            lengths[2] >= MIN_SENT_LENGTH
           ):
             filtered_A1.append( A1_seq[i] )
             filtered_B.append(  B_seq[i]  )
             filtered_A2.append( A2_seq[i] )
-        elif j < 10:
+        elif j < 2:
             print( A1_seq[i], B_seq[i], A2_seq[i] )
             print( lengths )
             j+=1
@@ -165,9 +114,10 @@ def filter_data(A1_seq, B_seq, A2_seq):
     # print the fraction of the original data, filtered
     filt_data_len = len(filtered_A1)
     filtered = int(filt_data_len*100/data_len)
+    print( filt_data_len, " is how many pairs remain" )
     print(str(filtered) + '% passed through from original data')
 
-    return filtered_A1, filtered_B, filtered_A2
+    return np.array(filtered_A1), np.array(filtered_B), np.array(filtered_A2)
 
 '''
  read list of words, create index to word,
@@ -206,6 +156,7 @@ def filter_unk(A1_w2v,B_w2v, atokenized, w2idx):
     # print the fraction of the original data, filtered
     filt_data_len = len(filtered_A2)
     filtered = int(filt_data_len*100/data_len)
+    print(filt_data_len, " lines are now remaining" )
     print(str(filtered) + '% passed through from original data')
 
     return filtered_A1, filtered_B, filtered_A2
@@ -259,30 +210,33 @@ def process_data():
     print(convs[121:125])
     print('>> gathered conversations.\n')
     A1, B, A2 = gather_dataset(convs,id2line)
+    
+    print('\n>>saving all lines')
+    np.save('All_Lines.npy',np.append(A1,np.append(B,A2)))
 
     # change to lower case (just for en)
-    A1, B, A2 = [ [ line.lower() for line in sentences ] for sentences in [A1, B, A2 ] ]
-    A1, B, A2 = seperate_punc( [ A1, B, A2 ] )
+    #A1, B, A2 = [ [ line.lower() for line in sentences ] for sentences in [A1, B, A2 ] ]
+    #A1, B, A2 = seperate_punc( [ A1, B, A2 ] )
     
     # filter out too long or too short sequences
     print('\n>> 2nd layer of filtering')
-    A1_lines, B_lines, A2_lines = filter_data(A1,B,A2)
+    A1, B, A2 = filter_data(A1,B,A2)
      
-    print('\n>> Segment lines into words')
-    A2_tokenized = [ [w.strip() for w in wordlist.split(' ') if w] for wordlist in A2_lines ]
+    #print('\n>> Segment lines into words')
+    #A2_tokenized = [ [w.strip() for w in wordlist.split(' ') if w] for wordlist in A2_lines ]
                  
-    print('\n:: Sample from segmented list of words')
-    for a in A2_tokenized[141:145]:
-        print(a)
+    #print('\n:: Sample from segmented list of words')
+    #for a in A2_tokenized[141:145]:
+    #    print(a)
 
     # indexing -> idx2w, w2idx 
-    print('\n >> Index words')
-    idx2w, w2idx, freq_dist = index_( A2_tokenized, vocab_size=VOCAB_SIZE)
+    #print('\n >> Index words')
+    #idx2w, w2idx, freq_dist = index_( A2_tokenized, vocab_size=VOCAB_SIZE)
     
     # filter out sentences with too many unknowns
-    print('\n >> Filter Unknowns')
-    filtered_A1, filtered_B, filtered_A2 = filter_unk(A1_lines, B_lines, A2_tokenized, w2idx)
-    print('\n Final dataset len : ' + str(len(filtered_A2)))
+    #print('\n >> Filter Unknowns')
+    #filtered_A1, filtered_B, filtered_A2 = filter_unk(A1_lines, B_lines, A2_tokenized, w2idx)
+    #print('\n Final dataset len : ' + str(len(filtered_A2)))
 
     #print('\n >> Zero Padding')
     #padded_A2 = zero_pad(filtered_A2, w2idx)
@@ -291,21 +245,21 @@ def process_data():
                 
     print('\n >> Save numpy arrays to disk')
     # save them
-    np.save('idx_A1.npy', filtered_A1)
-    np.save('idx_B.npy',  filtered_B )
-    np.save('idx_A2.npy', filtered_A2)
+    np.save('A1.npy', A1)
+    np.save('B.npy',  B )
+    np.save('A2.npy', A2)
 
     # let us now save the necessary dictionaries
-    metadata = {
-            'w2idx' : w2idx,
-            'idx2w' : idx2w,
-            'limit' : [min_sent_length,max_sent_length],
-            'freq_dist' : freq_dist
-             }
+    #metadata = {
+    #        'w2idx' : w2idx,
+    #        'idx2w' : idx2w,
+    #        'limit' : [min_sent_length,max_sent_length],
+    #        'freq_dist' : freq_dist
+    #         }
 
     # write to disk : data control dictionaries
-    with open('metadata.pkl', 'wb') as f:
-        pickle.dump(metadata, f)
+    #with open('metadata.pkl', 'wb') as f:
+    #    pickle.dump(metadata, f)
 
     # count of unknowns
     # unk_count = (padded_A2 == 1).sum()
@@ -313,7 +267,7 @@ def process_data():
     # word_count = (padded_A2 > 1).sum()
 
     # print('% unknown : {0}'.format(100 * (unk_count/word_count)))
-    print('Dataset count : ' + str(filtered_A2.shape[0]))
+    #print('Dataset count : ' + str(filtered_A2.shape[0]))
 
 
     print('>> gathered questions and answers.\n')
@@ -328,11 +282,11 @@ def load_data(PATH=''):
     with open(PATH + 'metadata.pkl', 'rb') as f:
         metadata = pickle.load(f)
     # read numpy arrays
-    filtered_A1 = np.load(PATH + 'idx_A1.npy' )
-    filtered_B  = np.load(PATH + 'idx_B.npy'  )
-    filtered_A2 = np.load(PATH + 'idx_A2.npy' )
+    A1 = np.load(PATH + 'A1.npy' )
+    B  = np.load(PATH + 'B.npy'  )
+    A2 = np.load(PATH + 'A2.npy' )
   
-    return metadata, filtered_A1, filtered_B, filtered_A2
+    return A1, B, A2
 
 
 def categorical_representation(vector_rep):
@@ -340,6 +294,5 @@ def categorical_representation(vector_rep):
     for i,word_index in enumerate(vector_rep):
         ret[word_index][i] = 1
     return(ret)
-
-
+    
 
