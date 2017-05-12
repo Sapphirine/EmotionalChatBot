@@ -9,8 +9,6 @@ from chat_constants import *
 from gensim.models import Word2Vec
 
 word2vec_path = './GoogleNews-vectors-negative300.bin'
-
-word2vec_path = './GoogleNews-vectors-negative300.bin'
 unknown_path  = 'unknown_words_stored.pkl'
 
 def initialize():
@@ -18,7 +16,7 @@ def initialize():
     try:
         w2v_model
     except:
-        w2v_model = Word2Vec.load('movie_trained_w2v_model')#gensim.models.KeyedVectors.load_word2vec_format(word2vec_path, binary=True)#
+        w2v_model = gensim.models.KeyedVectors.load_word2vec_format(word2vec_path, binary=True)#Word2Vec.load('movie_trained_w2v_model')
     return( w2v_model ) 
 
 def get_unknown_vectors():
@@ -34,7 +32,7 @@ def unvectorize_initialize():
     reset_global_unknown_vectors()
     initialize_global_w2v_model()
     
-def unvectorize_sentence( sentence ):
+def unvectorize_sentence( sentence, use_unknowns = False ):
     ''' Takes a numpy array indicating a sentence where each entry is a 301 dim
         vector indicating the predicted embedding of a word.
         
@@ -42,13 +40,15 @@ def unvectorize_sentence( sentence ):
     '''
     words = []
     for word in sentence:
-        words.append( unvectorize_word( word ) )
+        words.append( unvectorize_word( word, use_unknowns = use_unknowns ) )
     return( " ".join(words) )
 
-def unvectorize_word( word ):
+def unvectorize_word( word, use_unknowns = False ):
     ''' Takes a numpy array inidicating a word embedid in 301 dim space and 
         returns the most likely word
     '''
+    ret = "_"
+    print(word.shape)
     if word[-1] == 1: #Parse NULL predicted words
         ret = "_"
     else:
@@ -57,9 +57,9 @@ def unvectorize_word( word ):
         word_sum_square = np.sum(word**2) # calculate once here to avoid multiple calculation
         w2v_word,w2v_similarity = w2v_model.similar_by_vector( word, topn = 1 )[0]
         #Very confident it is this word
-        if w2v_similarity > 0.999:
+        if w2v_similarity > 0.999 or not use_unknowns:
             ret = w2v_word
-        else:
+        elif use_unknowns:
             #Unknown word 
             uk_word,uk_similarity = get_best_unknown_word( word, word_sum_square )
             print( "w2v word-score", w2v_word, w2v_similarity, "\n", "uk word-score", uk_word, uk_similarity )
@@ -100,7 +100,7 @@ def split_sentence( sentence ):
     sentence = " ".join(sentence.split()) #Remove multiple spaces
     return sentence 
 
-def vectorize( sentence, pad_length = -1, model = None ):
+def vectorize( sentence, pad_length = -1, model = None, use_unknown_words = False ):
     global unknown_vectors
     global w2v_model
 
@@ -108,8 +108,6 @@ def vectorize( sentence, pad_length = -1, model = None ):
         print("Attempting to use global model")
         model = w2v_model
         
-    model_dimension = len(model['the'])#Assume the to always be in the model
-
     sentence = split_sentence( sentence )
     words = sentence.split(" ")
     vectorized_sentence = []
@@ -121,13 +119,15 @@ def vectorize( sentence, pad_length = -1, model = None ):
             vectorized_sentence.append(np.append(model[word],0))
         elif lower_word in model:
             vectorized_sentence.append(np.append(model[lower_word],0))
-        elif lower_word in unknown_vectors:
+        elif use_unknown_words and lower_word in unknown_vectors:
             vectorized_sentence.append(unknown_vectors[lower_word])
         else:
             # Yoon Kim's unknown word handling, 2014
             # https://github.com/yoonkim/CNN_sentence/blob/master/process_data.py#L88
-            unknown_vectors[lower_word] = np.append(np.random.uniform(-0.25,0.25,EMBED_DIM-1),0)
-            vectorized_sentence.append(unknown_vectors[lower_word])
+            vec = np.append(np.random.uniform(-0.25,0.25,EMBED_DIM-1),0)
+            if use_unknown_words:
+                unknown_vectors[lower_word] = vec
+            vectorized_sentence.append(vec)
             #should_save_unknown_vectors = True
             
     if( pad_length != -1 ):
